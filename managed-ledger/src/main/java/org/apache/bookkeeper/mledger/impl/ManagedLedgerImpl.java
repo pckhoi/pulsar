@@ -1957,6 +1957,7 @@ public class ManagedLedgerImpl implements ManagedLedger, CreateCallback {
 
             LedgerInfo info = ledgers.get(ledgerId);
             CompletableFuture<ReadHandle> openFuture;
+            log.debug("got info of ledger {}: {}", ledgerId, info);
 
             if (config.getLedgerOffloader() != null
                     && config.getLedgerOffloader().getOffloadPolicies() != null
@@ -1964,11 +1965,12 @@ public class ManagedLedgerImpl implements ManagedLedger, CreateCallback {
                     .getManagedLedgerOffloadedReadPriority() == OffloadedReadPriority.BOOKKEEPER_FIRST
                     && info != null && info.hasOffloadContext()
                     && !info.getOffloadContext().getBookkeeperDeleted()) {
+                log.debug("fetching ledger {} from bookkeeper due to offloadedReadPriority", ledgerId);
                 openFuture = bookKeeper.newOpenLedgerOp().withRecovery(!isReadOnly()).withLedgerId(ledgerId)
                         .withDigestType(config.getDigestType()).withPassword(config.getPassword()).execute();
 
             } else if (info != null && info.hasOffloadContext() && info.getOffloadContext().getComplete()) {
-
+                log.debug("fetching ledger {} from S3", ledgerId);
                 UUID uid = new UUID(info.getOffloadContext().getUidMsb(), info.getOffloadContext().getUidLsb());
                 // TODO: improve this to load ledger offloader by driver name recorded in metadata
                 Map<String, String> offloadDriverMetadata = OffloadUtils.getOffloadDriverMetadata(info);
@@ -1976,6 +1978,7 @@ public class ManagedLedgerImpl implements ManagedLedger, CreateCallback {
                 openFuture = config.getLedgerOffloader().readOffloaded(ledgerId, uid,
                         offloadDriverMetadata);
             } else {
+                log.debug("fetching ledger {} from bookkeeper", ledgerId);
                 openFuture = bookKeeper.newOpenLedgerOp().withRecovery(!isReadOnly()).withLedgerId(ledgerId)
                         .withDigestType(config.getDigestType()).withPassword(config.getPassword()).execute();
             }
@@ -3192,6 +3195,7 @@ public class ManagedLedgerImpl implements ManagedLedger, CreateCallback {
             }
 
             long current = ledgers.lastKey();
+            log.debug("[{}] current ledger Id is {}", name, current);
 
             // the first ledger which will not be offloaded. Defaults to current,
             // in the case that the whole headmap is offloaded. Otherwise, it will
@@ -3202,9 +3206,14 @@ public class ManagedLedgerImpl implements ManagedLedger, CreateCallback {
                     // don't offload if ledger has already been offloaded, or is empty
                     if (!ls.getOffloadContext().getComplete() && ls.getSize() > 0) {
                         ledgersToOffload.add(ls);
+                        log.debug("[{}] queuing ledger {} for offloading", name, ls.getLedgerId());
+                    } else {
+                        log.debug("[{}] skipping ledger {}, offloadCompleted={}, size={}",
+                                name, ls.getLedgerId(), ls.getOffloadContext().getComplete(), ls.getSize());
                     }
                 } else {
                     firstLedgerRetained = ls.getLedgerId();
+                    log.debug("[{}] set first ledger retained to {}", name, ls.getLedgerId());
                     break;
                 }
             }
